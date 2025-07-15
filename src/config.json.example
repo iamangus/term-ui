@@ -1,0 +1,23 @@
+{
+  "oidc": {
+    "client_id": "your-client-id",
+    "client_secret": "your-client-secret",
+    "issuer_url": "https://your-oidc-provider.com",
+    "redirect_url": "http://localhost:8080/auth/callback",
+    "scopes": ["openid", "profile", "email"]
+  },
+  "server": {
+    "host": "localhost",
+    "port": 8080
+  },
+  "session": {
+    "secret": "your-very-secure-secret-key-change-this-in-production",
+    "max_age": 86400,
+    "secure": false,
+    "http_only": true
+  },
+  "user": {
+    "home_dir_base": "/home",
+    "shell": "/bin/bash"
+  }
+}

@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Terminal - Login Required</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            font-family: 'Monaco', 'Menlo', 'DejaVu Sans Mono', 'Lucida Console', monospace;
+            color: #fff;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-container {
+            text-align: center;
+            max-width: 400px;
+            padding: 40px;
+            background: #111;
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+        }
+
+        .login-title {
+            font-size: 24px;
+            margin-bottom: 20px;
+            color: #00ff00;
+        }
+
+        .login-button {
+            background: #00ff00;
+            color: #000;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-family: inherit;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+            margin: 10px;
+        }
+
+        .login-button:hover {
+            background: #00cc00;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0, 255, 0, 0.3);
+        }
+
+        .login-button:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .loading {
+            color: #00ff00;
+            font-size: 14px;
+            margin: 20px 0;
+        }
+
+        .error {
+            color: #ff4444;
+            font-size: 14px;
+            margin: 20px 0;
+            padding: 10px;
+            background: #220000;
+            border-radius: 4px;
+        }
+
+        .user-info {
+            margin: 20px 0;
+            padding: 15px;
+            background: #222;
+            border-radius: 4px;
+            text-align: left;
+        }
+
+        .user-info div {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+
+        .logout-button {
+            background: #ff4444;
+            color: #fff;
+            border: none;
+            padding: 8px 16px;
+            font-size: 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .logout-button:hover {
+            background: #cc3333;
+        }
+
+        /* Terminal styles (hidden initially) */
+        #terminal {
+            display: none;
+            height: 100vh;
+            width: 100vw;
+            padding: 20px;
+            box-sizing: border-box;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #terminal-inner {
+            width: 100%;
+            height: 100%;
+            background: #000;
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Mobile-specific styles */
+        @media (max-width: 768px) {
+            .login-container {
+                margin: 20px;
+                padding: 30px 20px;
+            }
+            
+            .login-title {
+                font-size: 20px;
+            }
+            
+            .login-button {
+                width: 100%;
+                margin: 10px 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="login-screen" class="login-container">
+        <h1 class="login-title">Terminal Access</h1>
+        <p>Please authenticate to access the terminal.</p>
+        
+        <div id="loading" class="loading" style="display: none;">
+            Checking authentication status...
+        </div>
+        
+        <div id="error" class="error" style="display: none;"></div>
+        
+        <div id="user-info" class="user-info" style="display: none;">
+            <div><strong>Username:</strong> <span id="username"></span></div>
+            <div><strong>Email:</strong> <span id="email"></span></div>
+            <button id="logout-btn" class="logout-button">Logout</button>
+        </div>
+        
+        <button id="login-btn" class="login-button" style="display: none;">
+            Login with OIDC
+        </button>
+        
+        <button id="terminal-btn" class="login-button" style="display: none;">
+            Open Terminal
+        </button>
+    </div>
+
+    <!-- Terminal (hidden initially) -->
+    <div id="terminal">
+        <div id="terminal-inner"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js"></script>
+
+    <script>
+        class AuthTerminal {
+            constructor() {
+                this.ws = null;
+                this.connected = false;
+                this.reconnectAttempts = 0;
+                this.maxReconnectAttempts = 5;
+                this.sessionId = null;
+                this.user = null;
+                this.term = null;
+                this.fitAddon = null;
+                this.visualConfig = null;
+                
+                // Touch/trackpad state
+                this.trackpadMode = false;
+                this.touchStartX = 0;
+                this.touchStartY = 0;
+                this.touchStartTime = 0;
+                this.isNavigating = false;
+                this.longPressTimer = null;
+                
+                // Virtual keyboard detection
+                this.initialViewportHeight = window.innerHeight;
+                this.keyboardVisible = false;
+                
+                this.init();
+            }
+
+            async init() {
+                // Load visual configuration
+                await this.loadVisualConfig();
+                
+                // Check authentication status
+                await this.checkAuthStatus();
+                
+                // Setup event listeners
+                this.setupEventListeners();
+                
+                // Enable trackpad mode by default on mobile devices
+                if (this.isMobile()) {
+                    this.trackpadMode = true;
+                    document.body.classList.add('keyboard-hidden');
+                }
+            }
+
+            async loadVisualConfig() {
+                try {
+                    const response = await fetch('/api/visual-config');
+                    if (response.ok) {
+                        this.visualConfig = await response.json();
+                    } else {
+                        this.visualConfig = this.getDefaultVisualConfig();
+                    }
+                } catch (error) {
+                    console.log('Using default visual configuration');
+                    this.visualConfig = this.getDefaultVisualConfig();
+                }
+            }
+
+            getDefaultVisualConfig() {
+                return {
+                    terminal: {
+                        font_size: 14,
+                        font_family: 'Monaco, Menlo, "DejaVu Sans Mono", "Lucida Console", monospace',
+                        cursor_blink: true,
+                        scrollback: 1000,
+                        allow_proposed_api: true
+                    },
+                    theme: {
+                        background: '#000000',
+                        foreground: '#ffffff',
+                        cursor: '#ffffff',
+                        cursor_accent: '#000000',
+                        selection_background: '#3366aa'
+                    }
+                };
+            }
+
+            async checkAuthStatus() {
+                const loading = document.getElementById('loading');
+                const loginBtn = document.getElementById('login-btn');
+                const terminalBtn = document.getElementById('terminal-btn');
+                const userInfo = document.getElementById('user-info');
+                const error = document.getElementById('error');
+
+                loading.style.display = 'block';
+                loginBtn.style.display = 'none';
+                terminalBtn.style.display = 'none';
+                userInfo.style.display = 'none';
+                error.style.display = 'none';
+
+                try {
+                    const response = await fetch('/auth/user');
+                    if (response.ok) {
+                        this.user = await response.json();
+                        this.showAuthenticated();
+                    } else {
+                        this.showLoginRequired();
+                    }
+                } catch (err) {
+                    console.error('Error checking auth status:', err);
+                    error.textContent = 'Failed to check authentication status. Please try again.';
+                    error.style.display = 'block';
+                    loginBtn.style.display = 'inline-block';
+                } finally {
+                    loading.style.display = 'none';
+                }
+            }
+
+            showAuthenticated() {
+                const loginBtn = document.getElementById('login-btn');
+                const terminalBtn = document.getElementById('terminal-btn');
+                const userInfo = document.getElementById('user-info');
+                const username = document.getElementById('username');
+                const email = document.getElementById('email');
+
+                loginBtn.style.display = 'none';
+                terminalBtn.style.display = 'inline-block';
+                userInfo.style.display = 'block';
+                
+                username.textContent = this.user.username;
+                email.textContent = this.user.email;
+            }
+
+            showLoginRequired() {
+                const loginBtn = document.getElementById('login-btn');
+                loginBtn.style.display = 'inline-block';
+            }
+
+            setupEventListeners() {
+                // Login button
+                document.getElementById('login-btn').addEventListener('click', () => {
+                    window.location.href = '/auth/login';
+                });
+
+                // Terminal button
+                document.getElementById('terminal-btn').addEventListener('click', () => {
+                    this.startTerminal();
+                });
+
+                // Logout button
+                document.getElementById('logout-btn').addEventListener('click', async () => {
+                    await fetch('/auth/logout');
+                    window.location.reload();
+                });
+            }
+
+            async startTerminal() {
+                // Hide login screen, show terminal
+                document.getElementById('login-screen').style.display = 'none';
+                document.getElementById('terminal').style.display = 'block';
+
+                // Create terminal
+                await this.createTerminal();
+                
+                // Get or create session
+                await this.getOrCreateSessionId();
+                
+                // Connect to WebSocket
+                this.connect();
+            }
+
+            async createTerminal() {
+                const config = this.visualConfig || this.getDefaultVisualConfig();
+                
+                this.term = new Terminal({
+                    cursorBlink: config.terminal.cursor_blink,
+                    fontFamily: config.terminal.font_family,
+                    fontSize: config.terminal.font_size,
+                    theme: {
+                        background: config.theme.background,
+                        foreground: config.theme.foreground,
+                        cursor: config.theme.cursor,
+                        cursorAccent: config.theme.cursor_accent,
+                        selectionBackground: config.theme.selection_background
+                    },
+                    allowProposedApi: config.terminal.allow_proposed_api,
+                    disableStdin: false,
+                    convertEol: true,
+                    scrollback: config.terminal.scrollback
+                });
+
+                // Load addons
+                this.fitAddon = new FitAddon.FitAddon();
+                const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+                
+                this.term.loadAddon(this.fitAddon);
+                this.term.loadAddon(webLinksAddon);
+
+                // Open terminal
+                this.term.open(document.getElementById('terminal-inner'));
+                this.fitAddon.fit();
+
+                // Setup event listeners
+                this.setupTerminalEventListeners();
+                
+                // Focus terminal
+                this.term.focus();
+            }
+
+            async getOrCreateSessionId() {
+                // Check URL parameters first
+                const urlParams = new URLSearchParams(window.location.search);
+                const sessionParam = urlParams.get('session');
+                
+                if (sessionParam) {
+                    this.sessionId = sessionParam;
+                    localStorage.setItem('terminalSessionId', this.sessionId);
+                    return;
+                }
+                
+                // Check localStorage
+                const storedSessionId = localStorage.getItem('terminalSessionId');
+                if (storedSessionId) {
+                    this.sessionId = storedSessionId;
+                    window.history.replaceState({}, '', `/?session=${this.sessionId}`);
+                    return;
+                }
+                
+                // Create new session
+                try {
+                    const response = await fetch('/api/session', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.sessionId = data.sessionId;
+                        localStorage.setItem('terminalSessionId', this.sessionId);
+                        window.history.replaceState({}, '', `/?session=${this.sessionId}`);
+                    } else {
+                        console.error('Failed to create session');
+                        this.sessionId = this.generateUUID();
+                        localStorage.setItem('terminalSessionId', this.sessionId);
+                        window.history.replaceState({}, '', `/?session=${this.sessionId}`);
+                    }
+                } catch (error) {
+                    console.error('Error creating session:', error);
+                    this.sessionId = this.generateUUID();
+                    localStorage.setItem('terminalSessionId', this.sessionId);
+                    window.history.replaceState({}, '', `/?session=${this.sessionId}`);
+                }
+            }
+
+            generateUUID() {
+                return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                    return v.toString(16);
+                });
+            }
+
+            connect() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws?session=${this.sessionId}`;
+                
+                this.ws = new WebSocket(wsUrl);
+                
+                this.ws.onopen = () => {
+                    this.connected = true;
+                    this.reconnectAttempts = 0;
+                    console.log('WebSocket connected');
+                    this.sendResize();
+                };
+                
+                this.ws.onmessage = (event) => {
+                    let data;
+                    if (typeof event.data === 'string') {
+                        data = event.data;
+                    } else if (event.data instanceof ArrayBuffer) {
+                        const decoder = new TextDecoder('utf-8', { fatal: false });
+                        data = decoder.decode(event.data);
+                    } else {
+                        const decoder = new TextDecoder('utf-8', { fatal: false });
+                        data = decoder.decode(new Uint8Array(event.data));
+                    }
+                    this.term.write(data);
+                };
+                
+                this.ws.onclose = (event) => {
+                    this.connected = false;
+                    console.log(`WebSocket disconnected (code: ${event.code}, reason: ${event.reason})`);
+                    
+                    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                        this.reconnectAttempts++;
+                        this.term.write(`\r\n\x1b[33mReconnecting... (${this.reconnectAttempts}/${this.maxReconnectAttempts})\x1b[0m\r\n`);
+                        setTimeout(() => this.connect(), 1000);
+                    } else {
+                        this.term.write('\r\n\x1b[31mConnection lost. Please refresh the page.\x1b[0m\r\n');
+                    }
+                };
+                
+                this.ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                };
+            }
+
+            setupTerminalEventListeners() {
+                // Handle user input
+                this.term.onData((data) => {
+                    this.sendInput(data);
+                });
+                
+                // Handle window resize
+                window.addEventListener('resize', () => {
+                    clearTimeout(this.resizeTimeout);
+                    this.resizeTimeout = setTimeout(() => {
+                        this.handleResize();
+                    }, 10);
+                });
+                
+                // Handle viewport changes for mobile keyboard detection
+                if (this.isMobile()) {
+                    if (window.visualViewport) {
+                        window.visualViewport.addEventListener('resize', () => {
+                            clearTimeout(this.keyboardTimeout);
+                            this.keyboardTimeout = setTimeout(() => {
+                                this.handleKeyboardResize();
+                            }, 10);
+                        });
+                    } else {
+                        window.addEventListener('orientationchange', () => {
+                            setTimeout(() => {
+                                this.handleResize();
+                            }, 50);
+                        });
+                    }
+                    
+                    this.term.textarea.addEventListener('blur', () => {
+                        setTimeout(() => {
+                            if (!document.activeElement || document.activeElement === document.body) {
+                                document.getElementById('terminal-inner').style.height = '100%';
+                                this.disableTextSelection();
+                                document.body.classList.add('keyboard-hidden');
+                                document.body.classList.remove('keyboard-visible');
+                                this.preventScrolling();
+                                setTimeout(() => {
+                                    this.fitAddon.fit();
+                                    this.sendResize();
+                                }, 10);
+                            }
+                        }, 10);
+                    });
+                }
+                
+                // Handle terminal resize
+                this.term.onResize((size) => {
+                    this.sendResize();
+                });
+                
+                // Handle paste
+                this.term.onBinary((data) => {
+                    this.sendInput(data);
+                });
+                
+                // Add touch event listeners for mobile trackpad functionality
+                this.setupTouchEvents();
+            }
+
+            sendInput(data) {
+                if (this.connected && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'input',
+                        data: data
+                    }));
+                }
+            }
+
+            sendResize() {
+                if (this.connected && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'resize',
+                        cols: this.term.cols,
+                        rows: this.term.rows
+                    }));
+                }
+            }
+
+            isMobile() {
+                return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            }
+
+            handleKeyboardResize() {
+                if (!this.isMobile()) return;
+                
+                const currentHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+                const heightDifference = this.initialViewportHeight - currentHeight;
+                const keyboardThreshold = 150;
+                
+                const wasKeyboardVisible = this.keyboardVisible;
+                this.keyboardVisible = heightDifference > keyboardThreshold;
+                
+                if (this.keyboardVisible !== wasKeyboardVisible) {
+                    if (this.keyboardVisible) {
+                        const bufferHeight = -20;
+                        document.getElementById('terminal-inner').style.height = `${currentHeight + bufferHeight}px`;
+                        this.enableTextSelection();
+                        document.body.classList.add('keyboard-visible');
+                        document.body.classList.remove('keyboard-hidden');
+                        this.allowScrolling();
+                        
+                        setTimeout(() => {
+                            if (this.term) {
+                                this.term.scrollToBottom();
+                            }
+                        }, 15);
+                    } else {
+                        document.getElementById('terminal-inner').style.height = '100%';
+                        this.disableTextSelection();
+                        document.body.classList.add('keyboard-hidden');
+                        document.body.classList.remove('keyboard-visible');
+                        this.preventScrolling();
+                    }
+                    
+                    setTimeout(() => {
+                        this.fitAddon.fit();
+                        this.sendResize();
+                    }, 10);
+                }
+            }
+
+            handleResize() {
+                if (this.isMobile() && window.visualViewport) {
+                    this.handleKeyboardResize();
+                } else {
+                    this.fitAddon.fit();
+                    this.sendResize();
+                }
+            }
+
+            setupTouchEvents() {
+                const terminal = document.getElementById('terminal-inner');
+                
+                terminal.addEventListener('touchstart', (e) => {
+                    if (e.touches.length === 1 && this.isMobile()) {
+                        this.touchStartX = e.touches[0].clientX;
+                        this.touchStartY = e.touches[0].clientY;
+                        this.touchStartTime = Date.now();
+                        this.isNavigating = false;
+                    }
+                }, { passive: false });
+                
+                terminal.addEventListener('touchmove', (e) => {
+                    if (e.touches.length === 1 && this.isMobile()) {
+                        const currentX = e.touches[0].clientX;
+                        const currentY = e.touches[0].clientY;
+                        
+                        const deltaX = currentX - this.touchStartX;
+                        const deltaY = currentY - this.touchStartY;
+                        const threshold = 30;
+                        
+                        if (!this.keyboardVisible) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            
+                            const viewport = document.querySelector('.xterm-viewport');
+                            if (viewport) {
+                                viewport.style.overflow = 'hidden';
+                                viewport.style.overflowY = 'hidden';
+                                viewport.style.overflowX = 'hidden';
+                                viewport.style.touchAction = 'none';
+                            }
+                            
+                            if (!this.isNavigating && (Math.abs(deltaX) > threshold || Math.abs(deltaY) > threshold)) {
+                                this.isNavigating = true;
+                                
+                                let key = '';
+                                if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                                    key = deltaX > 0 ? '\x1b[C' : '\x1b[D';
+                                } else {
+                                    key = deltaY > 0 ? '\x1b[B' : '\x1b[A';
+                                }
+                                
+                                if (key) {
+                                    this.sendInput(key);
+                                    this.touchStartX = currentX;
+                                    this.touchStartY = currentY;
+                                }
+                            } else if (this.isNavigating) {
+                                let key = '';
+                                if (Math.abs(deltaX) > 10 && Math.abs(deltaX) > Math.abs(deltaY)) {
+                                    key = deltaX > 0 ? '\x1b[C' : '\x1b[D';
+                                } else if (Math.abs(deltaY) > 10 && Math.abs(deltaY) > Math.abs(deltaX)) {
+                                    key = deltaY > 0 ? '\x1b[B' : '\x1b[A';
+                                }
+                                
+                                if (key) {
+                                    this.sendInput(key);
+                                    this.touchStartX = currentX;
+                                    this.touchStartY = currentY;
+                                }
+                            }
+                        }
+                    }
+                }, { passive: false });
+                
+                terminal.addEventListener('touchend', (e) => {
+                    const timeDiff = Date.now() - this.touchStartTime;
+                    const wasTap = timeDiff < 300 && !this.isNavigating;
+                    
+                    this.isNavigating = false;
+                    
+                    if (!this.keyboardVisible && this.isMobile() && !wasTap) {
+                        e.preventDefault();
+                    }
+                }, { passive: false });
+                
+                terminal.addEventListener('touchcancel', (e) => {
+                    this.isNavigating = false;
+                    
+                    if (!this.keyboardVisible && this.isMobile()) {
+                        e.preventDefault();
+                    }
+                }, { passive: false });
+            }
+
+            enableTextSelection() {
+                document.body.classList.remove('no-select');
+                document.body.classList.add('allow-select');
+                
+                if (this.isMobile()) {
+                    document.body.style.overflow = 'hidden';
+                    document.body.style.touchAction = 'none';
+                    document.getElementById('terminal').style.overflow = 'hidden';
+                    document.getElementById('terminal').style.touchAction = 'none';
+                    document.getElementById('terminal-inner').style.overflow = 'hidden';
+                    document.getElementById('terminal-inner').style.touchAction = 'none';
+                }
+            }
+
+            disableTextSelection() {
+                document.body.classList.add('no-select');
+                document.body.classList.remove('allow-select');
+                
+                if (this.isMobile()) {
+                    document.body.style.overflow = 'hidden';
+                    document.body.style.touchAction = 'none';
+                    document.getElementById('terminal').style.overflow = 'hidden';
+                    document.getElementById('terminal').style.touchAction = 'none';
+                    document.getElementById('terminal-inner').style.overflow = 'hidden';
+                    document.getElementById('terminal-inner').style.touchAction = 'none';
+                }
+            }
+
+            preventScrolling() {
+                document.body.classList.add('keyboard-hidden');
+                document.body.classList.remove('keyboard-visible');
+                
+                if (this.term) {
+                    this.term.options.scrollback = 0;
+                    this.term.scrollToBottom();
+                }
+            }
+
+            allowScrolling() {
+                document.body.classList.add('keyboard-visible');
+                document.body.classList.remove('keyboard-hidden');
+                
+                if (this.term) {
+                    this.term.options.scrollback = 1000;
+                }
+            }
+        }
+
+        // Start the application when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            const authTerminal = new AuthTerminal();
+        });
+    </script>
+</body>
+</html>
