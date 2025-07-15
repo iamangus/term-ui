@@ -23,7 +23,7 @@ COPY src src
 
 RUN cd src && \
     go mod tidy && \
-    go build -o /usr/sbin/term-ui && \
+    go build main.go -o /usr/sbin/term-ui && \
     chmod +x /usr/sbin/term-ui && \
     setcap cap_setuid,cap_setgid+ep /usr/sbin/term-ui && \
     groupadd usermanagers && \
