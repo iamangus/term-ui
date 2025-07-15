@@ -31,7 +31,7 @@ RUN cd src && \
     chown root:usermanagers /etc/passwd /etc/shadow /etc/group && \
     chmod 664 /etc/passwd /etc/shadow /etc/group
 
-COPY entrypoint.sh /usr/bin/entrypoint.sh
+COPY build/entrypoint.sh /usr/bin/entrypoint.sh
 RUN chmod +x /usr/bin/entrypoint.sh
 
 EXPOSE 3000
