@@ -36,6 +36,7 @@ RUN cd src && \
 COPY build/entrypoint.sh /usr/bin/entrypoint.sh
 RUN chmod +x /usr/bin/entrypoint.sh
 
+
 EXPOSE 3000
 
 ENTRYPOINT ["/usr/bin/entrypoint.sh"]
