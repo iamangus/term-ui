@@ -19,6 +19,8 @@ RUN dnf install dnf-plugins-core -y && \
     dnf install -y vim ipmitool kubectl opentofu sudo gh git zsh util-linux-user ansible golang && \
     dnf install -y libnss3.so libatk-1.0.so.0 chromium chromium-headless nss atk at-spi2-atk libXcomposite libXcursor libXdamage libXext libXi libXtst cups-libs libXScrnSaver libXrandr alsa-lib pango at-spi2-core libXt xorg-x11-server-Xvfb mesa-libgbm
 
+RUN useradd -m -s /bin/bash termuser
+
 COPY src src
 
 RUN cd src && \
@@ -27,7 +29,7 @@ RUN cd src && \
     chmod +x /usr/sbin/term-ui && \
     setcap cap_setuid,cap_setgid+ep /usr/sbin/term-ui && \
     groupadd usermanagers && \
-    usermod -a -G usermanagers && \
+    usermod -a -G usermanagers termuser && \
     chown root:usermanagers /etc/passwd /etc/shadow /etc/group && \
     chmod 664 /etc/passwd /etc/shadow /etc/group
 
