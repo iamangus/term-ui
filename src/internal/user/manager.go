@@ -73,49 +73,13 @@ func (m *Manager) CreateUser(username, email string) (*User, error) {
 }
 
 func (m *Manager) EnsureUserDirectory(username string) error {
-	user, err := m.GetUser(username)
-	if err != nil {
-		return err
-	}
-
-	// Ensure home directory exists and has correct permissions
-	if err := os.MkdirAll(user.HomeDir, 0755); err != nil {
-		return fmt.Errorf("failed to create home directory: %w", err)
-	}
-
-	// Set ownership using sudo chown
-	uid := uint32(user.UID)
-	gid := uint32(user.GID)
-	cmd := exec.Command("sudo", "chown", "-R", fmt.Sprintf("%d:%d", uid, gid), user.HomeDir)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to set home directory ownership: %w (output: %s)", err, string(output))
-	}
-
+	// useradd -m already creates the home directory with correct ownership
+	// This function is now a no-op since the directory is handled by useradd
 	return nil
 }
 
-func (m *Manager) SetupUserEnvironment(username string) error {
-	user, err := m.GetUser(username)
-	if err != nil {
-		return err
-	}
-
-	// Create .ssh directory if it doesn't exist
-	sshDir := filepath.Join(user.HomeDir, ".ssh")
-	if err := os.MkdirAll(sshDir, 0700); err != nil {
-		return fmt.Errorf("failed to create .ssh directory: %w", err)
-	}
-
-	// Set ownership using sudo chown
-	uid := uint32(user.UID)
-	gid := uint32(user.GID)
-	cmd := exec.Command("sudo", "chown", fmt.Sprintf("%d:%d", uid, gid), sshDir)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to set .ssh directory ownership: %w (output: %s)", err, string(output))
-	}
-
-	return nil
-}
+// SetupUserEnvironment is deprecated - useradd -m handles all necessary setup
+// This method has been removed as useradd -m creates home directory with correct ownership
 
 func (m *Manager) GetUserCredentials(username string) (*syscall.Credential, error) {
 	user, err := m.GetUser(username)

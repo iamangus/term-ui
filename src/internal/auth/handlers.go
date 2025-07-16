@@ -29,7 +29,6 @@ type UserManager interface {
 	SanitizeUsername(email string) string
 	ValidateUsername(username string) error
 	EnsureUserDirectory(username string) error
-	SetupUserEnvironment(username string) error
 }
 
 type SessionManager interface {
@@ -246,12 +245,7 @@ func (h *Handlers) Callback(c *fiber.Ctx) error {
 			"error": fmt.Sprintf("failed to setup user directory: %v", err),
 		})
 	}
-
-	if err := h.userManager.SetupUserEnvironment(username); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"error": fmt.Sprintf("failed to setup user environment: %v", err),
-		})
-	}
+	// SetupUserEnvironment is no longer needed - useradd -m handles everything
 
 	// Create session
 	session, err := h.sessionManager.CreateSession(user.Username, claims.Email)
