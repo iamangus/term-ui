@@ -63,42 +63,24 @@ func initTerminalSessionManager() {
 	}
 }
 
-func (sm *SessionManager) GetOrCreateSession(sessionID, username string) (*TerminalSession, error) {
+func (sm *SessionManager) GetOrCreateSession(username string) (*TerminalSession, error) {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 	
-	// Check if session already exists in memory
-	if session, exists := sm.sessions[sessionID]; exists {
-		// Verify the session belongs to the same user
-		if session.username != username {
-			return nil, fmt.Errorf("session %s belongs to different user", sessionID)
-		}
+	// Use username as the session identifier
+	if session, exists := sm.sessions[username]; exists {
 		session.lastUsed = time.Now()
 		return session, nil
 	}
 	
-	// Create new session
-	session, err := sm.createTerminalSession(sessionID, username)
+	// Create new session for this user
+	session, err := sm.createTerminalSession(username, username)
 	if err != nil {
 		return nil, err
 	}
 	
-	sm.sessions[sessionID] = session
+	sm.sessions[username] = session
 	return session, nil
-}
-
-// GetUserSessions returns all sessions for a specific user
-func (sm *SessionManager) GetUserSessions(username string) []*TerminalSession {
-	sm.mutex.RLock()
-	defer sm.mutex.RUnlock()
-	
-	var userSessions []*TerminalSession
-	for _, session := range sm.sessions {
-		if session.username == username {
-			userSessions = append(userSessions, session)
-		}
-	}
-	return userSessions
 }
 
 // CleanupInactiveSessions removes sessions that have been inactive for too long
@@ -107,11 +89,11 @@ func (sm *SessionManager) CleanupInactiveSessions(maxInactive time.Duration) {
 	defer sm.mutex.Unlock()
 	
 	now := time.Now()
-	for id, session := range sm.sessions {
+	for username, session := range sm.sessions {
 		if now.Sub(session.lastUsed) > maxInactive && len(session.connections) == 0 {
-			log.Printf("Cleaning up inactive session %s for user %s", id, session.username)
+			log.Printf("Cleaning up inactive session for user %s", username)
 			session.close()
-			delete(sm.sessions, id)
+			delete(sm.sessions, username)
 		}
 	}
 }
@@ -293,15 +275,8 @@ func handleWebSocket(c *websocket.Conn) {
 		return
 	}
 	
-	// Get or create session ID from query parameter
-	sessionID := c.Query("session")
-	if sessionID == "" {
-		sessionID = uuid.New().String()
-		log.Printf("Generated new session ID: %s for user: %s", sessionID, username)
-	}
-	
-	// Get or create terminal session
-	session, err := terminalSessionManager.GetOrCreateSession(sessionID, username)
+	// Get or create terminal session for this user
+	session, err := terminalSessionManager.GetOrCreateSession(username)
 	if err != nil {
 		log.Printf("Failed to get/create session: %v", err)
 		return
@@ -312,7 +287,7 @@ func handleWebSocket(c *websocket.Conn) {
 	defer session.RemoveConnection(c)
 	
 	if debugMode {
-		log.Printf("WebSocket connected to session %s for user %s", sessionID, username)
+		log.Printf("WebSocket connected to terminal for user %s", username)
 	}
 
 	// Use a context for clean cancellation
@@ -415,7 +390,7 @@ func handleWebSocket(c *websocket.Conn) {
 
 	// Wait for termination
 	<-ctx.Done()
-	log.Printf("WebSocket disconnected from session %s for user %s", sessionID, username)
+	log.Printf("WebSocket disconnected from terminal for user %s", username)
 }
 
 func main() {
@@ -499,46 +474,7 @@ func main() {
 	app.Get("/auth/logout", authHandlers.Logout)
 	app.Get("/auth/user", authHandlers.UserInfo)
 
-	// API routes
-	app.Post("/api/session", authHandlers.RequireAuth, func(c *fiber.Ctx) error {
-		username := c.Locals("username").(string)
-		
-		// Check if client wants to reuse an existing session
-		existingSessionID := c.Query("reuse")
-		if existingSessionID != "" {
-			// Verify the session exists and belongs to the user
-			if session, exists := terminalSessionManager.sessions[existingSessionID]; exists && session.username == username {
-				return c.JSON(fiber.Map{"sessionId": existingSessionID})
-			}
-		}
-		
-		// Create new session
-		sessionID := uuid.New().String()
-		return c.JSON(fiber.Map{"sessionId": sessionID})
-	})
-
-	// List user sessions
-	app.Get("/api/sessions", authHandlers.RequireAuth, func(c *fiber.Ctx) error {
-		username := c.Locals("username").(string)
-		sessions := terminalSessionManager.GetUserSessions(username)
-		
-		var sessionList []fiber.Map
-		for _, session := range sessions {
-			session.connMutex.Lock()
-			connectionCount := len(session.connections)
-			session.connMutex.Unlock()
-			
-			sessionList = append(sessionList, fiber.Map{
-				"id":         session.ID,
-				"createdAt":  session.createdAt,
-				"lastUsed":   session.lastUsed,
-				"active":     session.active,
-				"connections": connectionCount,
-			})
-		}
-		
-		return c.JSON(fiber.Map{"sessions": sessionList})
-	})
+	// API routes - No longer needed for single-session model
 
 	// WebSocket upgrade middleware
 	app.Use("/ws", func(c *fiber.Ctx) error {

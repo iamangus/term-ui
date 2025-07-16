@@ -252,21 +252,6 @@
         <button id="terminal-btn" class="login-button" style="display: none;">
             Open Terminal
         </button>
-        <button id="sessions-btn" class="login-button" style="display: none;">
-            Manage Sessions
-        </button>
-    </div>
-
-    <!-- Session Management Modal -->
-    <div id="session-modal" class="modal" style="display: none;">
-        <div class="modal-content">
-            <h2>Manage Sessions</h2>
-            <div id="session-list" class="session-list"></div>
-            <div class="modal-buttons">
-                <button id="new-session-btn" class="login-button">New Session</button>
-                <button id="close-modal-btn" class="logout-button">Close</button>
-            </div>
-        </div>
     </div>
 
     <!-- Terminal (hidden initially) -->
@@ -420,24 +405,10 @@
                     this.startTerminal();
                 });
 
-                // Sessions button
-                document.getElementById('sessions-btn').addEventListener('click', () => {
-                    this.showSessionModal();
-                });
-
                 // Logout button
                 document.getElementById('logout-btn').addEventListener('click', async () => {
                     await fetch('/auth/logout');
                     window.location.reload();
-                });
-
-                // Session modal buttons
-                document.getElementById('new-session-btn').addEventListener('click', () => {
-                    this.createNewSession();
-                });
-
-                document.getElementById('close-modal-btn').addEventListener('click', () => {
-                    this.hideSessionModal();
                 });
             }
 
@@ -449,10 +420,7 @@
                 // Create terminal
                 await this.createTerminal();
                 
-                // Get or create session
-                await this.getOrCreateSessionId();
-                
-                // Connect to WebSocket
+                // Connect to WebSocket - username is handled server-side
                 this.connect();
             }
 
@@ -494,186 +462,9 @@
                 this.term.focus();
             }
 
-            async getOrCreateSessionId() {
-                // Check URL parameters first
-                const urlParams = new URLSearchParams(window.location.search);
-                const sessionParam = urlParams.get('session');
-                
-                if (sessionParam) {
-                    this.sessionId = sessionParam;
-                    localStorage.setItem('terminalSessionId', this.sessionId);
-                    return;
-                }
-                
-                // Check localStorage
-                const storedSessionId = localStorage.getItem('terminalSessionId');
-                if (storedSessionId) {
-                    // Try to reuse existing session
-                    try {
-                        const response = await fetch(`/api/session?reuse=${storedSessionId}`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                        });
-                        
-                        if (response.ok) {
-                            const data = await response.json();
-                            this.sessionId = data.sessionId;
-                            window.history.replaceState({}, '', `/?session=${this.sessionId}`);
-                            return;
-                        }
-                    } catch (error) {
-                        console.log('Could not reuse session, creating new one');
-                    }
-                }
-                
-                // Create new session
-                try {
-                    const response = await fetch('/api/session', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                    });
-                    
-                    if (response.ok) {
-                        const data = await response.json();
-                        this.sessionId = data.sessionId;
-                        localStorage.setItem('terminalSessionId', this.sessionId);
-                        window.history.replaceState({}, '', `/?session=${this.sessionId}`);
-                    } else {
-                        console.error('Failed to create session');
-                        this.sessionId = this.generateUUID();
-                        localStorage.setItem('terminalSessionId', this.sessionId);
-                        window.history.replaceState({}, '', `/?session=${this.sessionId}`);
-                    }
-                } catch (error) {
-                    console.error('Error creating session:', error);
-                    this.sessionId = this.generateUUID();
-                    localStorage.setItem('terminalSessionId', this.sessionId);
-                    window.history.replaceState({}, '', `/?session=${this.sessionId}`);
-                }
-            }
-
-            generateUUID() {
-                return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-                    return v.toString(16);
-                });
-            }
-
-            async showSessionModal() {
-                const modal = document.getElementById('session-modal');
-                const sessionList = document.getElementById('session-list');
-                
-                try {
-                    const response = await fetch('/api/sessions');
-                    if (response.ok) {
-                        const data = await response.json();
-                        this.renderSessionList(data.sessions, sessionList);
-                        modal.style.display = 'flex';
-                    } else {
-                        console.error('Failed to load sessions');
-                    }
-                } catch (error) {
-                    console.error('Error loading sessions:', error);
-                }
-            }
-
-            renderSessionList(sessions, container) {
-                container.innerHTML = '';
-                
-                if (sessions.length === 0) {
-                    container.innerHTML = '<p>No existing sessions. Create a new one to get started.</p>';
-                    return;
-                }
-
-                sessions.forEach(session => {
-                    const sessionItem = document.createElement('div');
-                    sessionItem.className = 'session-item';
-                    if (session.id === this.sessionId) {
-                        sessionItem.classList.add('active');
-                    }
-
-                    const createdAt = new Date(session.createdAt).toLocaleString();
-                    const lastUsed = new Date(session.lastUsed).toLocaleString();
-                    
-                    sessionItem.innerHTML = `
-                        <div class="session-info">
-                            <div>
-                                <div class="session-id">${session.id.substring(0, 8)}...</div>
-                                <div class="session-meta">
-                                    Created: ${createdAt}<br>
-                                    Last used: ${lastUsed}<br>
-                                    Connections: ${session.connections}
-                                </div>
-                            </div>
-                        </div>
-                    `;
-
-                    sessionItem.addEventListener('click', () => {
-                        this.switchToSession(session.id);
-                        this.hideSessionModal();
-                    });
-
-                    container.appendChild(sessionItem);
-                });
-            }
-
-            hideSessionModal() {
-                document.getElementById('session-modal').style.display = 'none';
-            }
-
-            async createNewSession() {
-                try {
-                    const response = await fetch('/api/session', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                    });
-                    
-                    if (response.ok) {
-                        const data = await response.json();
-                        this.sessionId = data.sessionId;
-                        localStorage.setItem('terminalSessionId', this.sessionId);
-                        window.history.replaceState({}, '', `/?session=${this.sessionId}`);
-                        
-                        if (this.ws) {
-                            this.ws.close();
-                        }
-                        this.connect();
-                        this.hideSessionModal();
-                    }
-                } catch (error) {
-                    console.error('Error creating new session:', error);
-                }
-            }
-
-            async switchToSession(sessionId) {
-                if (sessionId === this.sessionId) {
-                    return; // Already on this session
-                }
-
-                this.sessionId = sessionId;
-                localStorage.setItem('terminalSessionId', this.sessionId);
-                window.history.replaceState({}, '', `/?session=${this.sessionId}`);
-                
-                if (this.ws) {
-                    this.ws.close();
-                }
-                
-                if (this.term) {
-                    this.term.clear();
-                }
-                
-                this.connect();
-            }
-
             connect() {
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const wsUrl = `${protocol}//${window.location.host}/ws?session=${this.sessionId}`;
+                const wsUrl = `${protocol}//${window.location.host}/ws`;
                 
                 this.ws = new WebSocket(wsUrl);
                 
