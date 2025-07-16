@@ -27,8 +27,7 @@ COPY src src
 
 RUN cd src && \
     go mod tidy && \
-    go build -o term-ui && \
-    chmod +x term-ui
+    go build -o term-ui
 
 USER root
 
