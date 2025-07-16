@@ -31,7 +31,6 @@ RUN cd src && \
 
 USER root
 
-
 RUN groupadd usermanagers && \
     usermod -a -G usermanagers termuser && \
     chown root:usermanagers /etc/passwd /etc/shadow /etc/group && \
