@@ -108,17 +108,121 @@
             display: none;
             height: 100vh;
             width: 100vw;
-            padding: 20px;
             box-sizing: border-box;
             overflow: hidden;
             position: relative;
+            flex-direction: column;
         }
 
-        #terminal-inner {
+        /* Tab bar styles */
+        .tab-bar {
+            display: flex;
+            background: #111;
+            border-bottom: 1px solid #333;
+            padding: 0 10px;
+            min-height: 40px;
+            align-items: center;
+            overflow-x: auto;
+            overflow-y: hidden;
+            white-space: nowrap;
+        }
+
+        .tab {
+            display: flex;
+            align-items: center;
+            padding: 8px 12px;
+            margin: 4px 2px;
+            background: #222;
+            border: 1px solid #444;
+            border-radius: 4px 4px 0 0;
+            cursor: pointer;
+            font-size: 14px;
+            min-width: 120px;
+            max-width: 200px;
+            position: relative;
+            transition: all 0.2s ease;
+            user-select: none;
+        }
+
+        .tab:hover {
+            background: #333;
+        }
+
+        .tab.active {
+            background: #000;
+            border-bottom: 1px solid #000;
+            color: #00ff00;
+        }
+
+        .tab-title {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            margin-right: 8px;
+        }
+
+        .tab-close {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 16px;
+            padding: 0;
+            width: 16px;
+            height: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+        }
+
+        .tab-close:hover {
+            background: #444;
+            color: #fff;
+        }
+
+        .tab-add {
+            background: none;
+            border: none;
+            color: #00ff00;
+            cursor: pointer;
+            font-size: 20px;
+            padding: 8px;
+            margin: 4px;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+
+        .tab-add:hover {
+            background: #333;
+        }
+
+        .terminal-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .terminal-tab {
+            display: none;
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .terminal-tab.active {
+            display: block;
+        }
+
+        .terminal-content {
             width: 100%;
             height: 100%;
             background: #000;
-            border-radius: 4px;
+            border-radius: 0 0 4px 4px;
             overflow: hidden;
             position: relative;
         }
@@ -256,7 +360,18 @@
 
     <!-- Terminal (hidden initially) -->
     <div id="terminal">
-        <div id="terminal-inner"></div>
+        <div class="tab-bar">
+            <div class="tab active" data-tab-id="0">
+                <span class="tab-title">Terminal 1</span>
+                <button class="tab-close" onclick="authTerminal.closeTab(0)">×</button>
+            </div>
+            <button class="tab-add" onclick="authTerminal.addTab()" title="New Terminal">+</button>
+        </div>
+        <div class="terminal-container">
+            <div class="terminal-tab active" data-tab-id="0">
+                <div class="terminal-content" id="terminal-0"></div>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
@@ -264,32 +379,37 @@
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js"></script>
 
     <script>
-        class AuthTerminal {
-            constructor() {
-                this.ws = null;
-                this.connected = false;
-                this.reconnectAttempts = 0;
-                this.maxReconnectAttempts = 5;
-                this.sessionId = null;
-                this.user = null;
-                this.term = null;
-                this.fitAddon = null;
-                this.visualConfig = null;
-                
-                // Touch/trackpad state
-                this.trackpadMode = false;
-                this.touchStartX = 0;
-                this.touchStartY = 0;
-                this.touchStartTime = 0;
-                this.isNavigating = false;
-                this.longPressTimer = null;
-                
-                // Virtual keyboard detection
-                this.initialViewportHeight = window.innerHeight;
-                this.keyboardVisible = false;
-                
-                this.init();
-            }
+    class AuthTerminal {
+        constructor() {
+            this.ws = null;
+            this.connected = false;
+            this.reconnectAttempts = 0;
+            this.maxReconnectAttempts = 5;
+            this.sessionId = null;
+            this.user = null;
+            this.term = null;
+            this.fitAddon = null;
+            this.visualConfig = null;
+            
+            // Tab management
+            this.tabs = [];
+            this.activeTabId = 0;
+            this.nextTabId = 1;
+            
+            // Touch/trackpad state
+            this.trackpadMode = false;
+            this.touchStartX = 0;
+            this.touchStartY = 0;
+            this.touchStartTime = 0;
+            this.isNavigating = false;
+            this.longPressTimer = null;
+            
+            // Virtual keyboard detection
+            this.initialViewportHeight = window.innerHeight;
+            this.keyboardVisible = false;
+            
+            this.init();
+        }
 
             async init() {
                 // Load visual configuration
@@ -305,6 +425,9 @@
                 if (this.isMobile()) {
                     this.trackpadMode = true;
                     document.body.classList.add('keyboard-hidden');
+                    
+                    // Add mobile-specific initialization
+                    this.initializeMobileTouchSupport();
                 }
                 
                 // Check for auto-start terminal parameter
@@ -319,6 +442,40 @@
                         window.history.replaceState({}, document.title, window.location.pathname);
                     }
                 }
+            }
+            
+            initializeMobileTouchSupport() {
+                // Ensure touch events work even when reconnecting to existing session
+                const checkForTerminal = () => {
+                    const terminal = document.getElementById('terminal');
+                    if (terminal && terminal.style.display !== 'none') {
+                        // Terminal is visible, ensure touch support is active
+                        setTimeout(() => {
+                            this.setupTouchEvents();
+                            this.ensureMobileSetup();
+                        }, 100);
+                    } else {
+                        // Check again in a bit
+                        setTimeout(checkForTerminal, 500);
+                    }
+                };
+                
+                // Start checking when DOM is ready
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', checkForTerminal);
+                } else {
+                    checkForTerminal();
+                }
+                
+                // Also check on visibility change (for tab switching)
+                document.addEventListener('visibilitychange', () => {
+                    if (!document.hidden && this.isMobile()) {
+                        setTimeout(() => {
+                            this.setupTouchEvents();
+                            this.ensureMobileSetup();
+                        }, 100);
+                    }
+                });
             }
 
             async loadVisualConfig() {
@@ -424,72 +581,285 @@
                     await fetch('/auth/logout');
                     window.location.reload();
                 });
+
+                // Keyboard shortcuts
+                document.addEventListener('keydown', (e) => {
+                    // Ctrl+T for new tab
+                    if (e.ctrlKey && e.key === 't' && !e.shiftKey && !e.altKey) {
+                        e.preventDefault();
+                        this.addTab();
+                    }
+                    
+                    // Ctrl+W for close tab (only if more than one tab)
+                    if (e.ctrlKey && e.key === 'w' && !e.shiftKey && !e.altKey) {
+                        e.preventDefault();
+                        if (this.tabs.length > 1) {
+                            this.closeTab(this.activeTabId);
+                        }
+                    }
+                    
+                    // Ctrl+Tab for next tab
+                    if (e.ctrlKey && e.key === 'Tab' && !e.shiftKey) {
+                        e.preventDefault();
+                        const currentIndex = this.tabs.findIndex(t => t.id === this.activeTabId);
+                        const nextIndex = (currentIndex + 1) % this.tabs.length;
+                        this.switchTab(this.tabs[nextIndex].id);
+                    }
+                    
+                    // Ctrl+Shift+Tab for previous tab
+                    if (e.ctrlKey && e.shiftKey && e.key === 'Tab') {
+                        e.preventDefault();
+                        const currentIndex = this.tabs.findIndex(t => t.id === this.activeTabId);
+                        const prevIndex = (currentIndex - 1 + this.tabs.length) % this.tabs.length;
+                        this.switchTab(this.tabs[prevIndex].id);
+                    }
+                });
             }
 
             async startTerminal() {
                 // Hide login screen, show terminal
                 document.getElementById('login-screen').style.display = 'none';
-                document.getElementById('terminal').style.display = 'block';
+                document.getElementById('terminal').style.display = 'flex';
 
-                // Create terminal
-                await this.createTerminal();
+                // Initialize first tab
+                await this.createTab(0);
                 
-                // Connect to WebSocket - username is handled server-side
-                this.connect();
+                // Ensure touch events are properly set up for mobile
+                if (this.isMobile()) {
+                    // Force re-initialization of touch events
+                    setTimeout(() => {
+                        this.setupTouchEvents();
+                        // Ensure trackpad mode is enabled for mobile
+                        this.trackpadMode = true;
+                        document.body.classList.add('keyboard-hidden');
+                    }, 100);
+                }
+                
+                // Connect WebSocket for the first tab
+                const firstTab = this.tabs.find(t => t.id === 0);
+                if (firstTab) {
+                    this.connectTab(firstTab);
+                }
             }
 
-            async createTerminal() {
+            async createTab(tabId) {
                 const config = this.visualConfig || this.getDefaultVisualConfig();
                 
-                this.term = new Terminal({
-                    cursorBlink: config.terminal.cursor_blink,
-                    fontFamily: config.terminal.font_family,
-                    fontSize: config.terminal.font_size,
-                    theme: {
-                        background: config.theme.background,
-                        foreground: config.theme.foreground,
-                        cursor: config.theme.cursor,
-                        cursorAccent: config.theme.cursor_accent,
-                        selectionBackground: config.theme.selection_background
-                    },
-                    allowProposedApi: config.terminal.allow_proposed_api,
-                    disableStdin: false,
-                    convertEol: true,
-                    scrollback: config.terminal.scrollback
-                });
+                const tab = {
+                    id: tabId,
+                    title: `Terminal ${tabId + 1}`,
+                    terminal: new Terminal({
+                        cursorBlink: config.terminal.cursor_blink,
+                        fontFamily: config.terminal.font_family,
+                        fontSize: config.terminal.font_size,
+                        theme: {
+                            background: config.theme.background,
+                            foreground: config.theme.foreground,
+                            cursor: config.theme.cursor,
+                            cursorAccent: config.theme.cursor_accent,
+                            selectionBackground: config.theme.selection_background
+                        },
+                        allowProposedApi: config.terminal.allow_proposed_api,
+                        disableStdin: false,
+                        convertEol: true,
+                        scrollback: config.terminal.scrollback
+                    }),
+                    fitAddon: new FitAddon.FitAddon(),
+                    webLinksAddon: new WebLinksAddon.WebLinksAddon(),
+                    ws: null,
+                    connected: false
+                };
 
                 // Load addons
-                this.fitAddon = new FitAddon.FitAddon();
-                const webLinksAddon = new WebLinksAddon.WebLinksAddon();
-                
-                this.term.loadAddon(this.fitAddon);
-                this.term.loadAddon(webLinksAddon);
+                tab.terminal.loadAddon(tab.fitAddon);
+                tab.terminal.loadAddon(tab.webLinksAddon);
 
-                // Open terminal
-                this.term.open(document.getElementById('terminal-inner'));
-                this.fitAddon.fit();
+                // Store tab
+                this.tabs.push(tab);
 
-                // Setup event listeners
-                this.setupTerminalEventListeners();
-                
-                // Focus terminal
-                this.term.focus();
+                // Open terminal in the correct container
+                const container = document.getElementById(`terminal-${tabId}`);
+                if (container) {
+                    tab.terminal.open(container);
+                    tab.fitAddon.fit();
+                    
+                    // Setup event listeners for this tab
+                    this.setupTabEventListeners(tab);
+                    
+                    // Focus the terminal
+                    tab.terminal.focus();
+                }
+
+                return tab;
             }
 
-            connect() {
+            async addTab() {
+                const tabId = this.nextTabId++;
+                const tabTitle = `Terminal ${tabId + 1}`;
+                
+                // Create tab element
+                const tabBar = document.querySelector('.tab-bar');
+                const newTab = document.createElement('div');
+                newTab.className = 'tab';
+                newTab.setAttribute('data-tab-id', tabId);
+                newTab.innerHTML = `
+                    <span class="tab-title">${tabTitle}</span>
+                    <button class="tab-close" onclick="authTerminal.closeTab(${tabId})">×</button>
+                `;
+                newTab.addEventListener('click', (e) => {
+                    if (!e.target.classList.contains('tab-close')) {
+                        this.switchTab(tabId);
+                    }
+                });
+                
+                // Insert before the add button
+                const addButton = tabBar.querySelector('.tab-add');
+                tabBar.insertBefore(newTab, addButton);
+                
+                // Create terminal container
+                const terminalContainer = document.querySelector('.terminal-container');
+                const terminalTab = document.createElement('div');
+                terminalTab.className = 'terminal-tab';
+                terminalTab.setAttribute('data-tab-id', tabId);
+                terminalTab.innerHTML = `<div class="terminal-content" id="terminal-${tabId}"></div>`;
+                terminalContainer.appendChild(terminalTab);
+                
+                // Create the actual terminal
+                const tab = await this.createTab(tabId);
+                
+                // Switch to the new tab
+                this.switchTab(tabId);
+                
+                // Connect WebSocket for this tab
+                this.connectTab(tab);
+            }
+
+            closeTab(tabId) {
+                const tabIndex = this.tabs.findIndex(t => t.id === tabId);
+                if (tabIndex === -1) return;
+                
+                const tab = this.tabs[tabIndex];
+                
+                // Close WebSocket connection
+                if (tab.ws && tab.ws.readyState === WebSocket.OPEN) {
+                    tab.ws.close();
+                }
+                
+                // Dispose terminal
+                tab.terminal.dispose();
+                
+                // Remove from tabs array
+                this.tabs.splice(tabIndex, 1);
+                
+                // Remove DOM elements
+                const tabElement = document.querySelector(`.tab[data-tab-id="${tabId}"]`);
+                const terminalElement = document.querySelector(`.terminal-tab[data-tab-id="${tabId}"]`);
+                
+                if (tabElement) tabElement.remove();
+                if (terminalElement) terminalElement.remove();
+                
+                // If this was the active tab, switch to another tab
+                if (this.activeTabId === tabId) {
+                    if (this.tabs.length > 0) {
+                        const newActiveTab = this.tabs[Math.max(0, tabIndex - 1)];
+                        this.switchTab(newActiveTab.id);
+                    } else {
+                        // No tabs left, create a new one
+                        this.addTab();
+                    }
+                }
+            }
+
+            switchTab(tabId) {
+                console.log(`Switching to tab ${tabId}`);
+                
+                // Update active tab
+                this.activeTabId = tabId;
+                
+                // Update tab bar
+                document.querySelectorAll('.tab').forEach(tab => {
+                    tab.classList.remove('active');
+                });
+                const tabElement = document.querySelector(`.tab[data-tab-id="${tabId}"]`);
+                if (tabElement) {
+                    tabElement.classList.add('active');
+                } else {
+                    console.error(`Tab element not found for tab ${tabId}`);
+                }
+                
+                // Update terminal display
+                document.querySelectorAll('.terminal-tab').forEach(tab => {
+                    tab.classList.remove('active');
+                });
+                const terminalElement = document.querySelector(`.terminal-tab[data-tab-id="${tabId}"]`);
+                if (terminalElement) {
+                    terminalElement.classList.add('active');
+                } else {
+                    console.error(`Terminal element not found for tab ${tabId}`);
+                }
+                
+                // Focus the active terminal
+                const activeTab = this.tabs.find(t => t.id === tabId);
+                if (activeTab) {
+                    setTimeout(() => {
+                        activeTab.terminal.focus();
+                        activeTab.fitAddon.fit();
+                        this.sendResizeForTab(activeTab);
+                    }, 10);
+                } else {
+                    console.error(`Active tab not found for tab ${tabId}`);
+                }
+            }
+
+            setupTabEventListeners(tab) {
+                // Handle user input
+                tab.terminal.onData((data) => {
+                    this.sendInputForTab(tab, data);
+                });
+                
+                // Handle resize
+                tab.terminal.onResize((size) => {
+                    this.sendResizeForTab(tab);
+                });
+                
+                // Handle paste
+                tab.terminal.onBinary((data) => {
+                    this.sendInputForTab(tab, data);
+                });
+            }
+
+            sendInputForTab(tab, data) {
+                if (tab.connected && tab.ws && tab.ws.readyState === WebSocket.OPEN) {
+                    tab.ws.send(JSON.stringify({
+                        type: 'input',
+                        data: data
+                    }));
+                }
+            }
+
+            sendResizeForTab(tab) {
+                if (tab.connected && tab.ws && tab.ws.readyState === WebSocket.OPEN) {
+                    tab.ws.send(JSON.stringify({
+                        type: 'resize',
+                        cols: tab.terminal.cols,
+                        rows: tab.terminal.rows
+                    }));
+                }
+            }
+
+            connectTab(tab) {
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const wsUrl = `${protocol}//${window.location.host}/ws`;
+                const wsUrl = `${protocol}//${window.location.host}/ws?session=${tab.id}`;
                 
-                this.ws = new WebSocket(wsUrl);
+                tab.ws = new WebSocket(wsUrl);
                 
-                this.ws.onopen = () => {
-                    this.connected = true;
-                    this.reconnectAttempts = 0;
-                    console.log('WebSocket connected');
-                    this.sendResize();
+                tab.ws.onopen = () => {
+                    tab.connected = true;
+                    console.log(`WebSocket connected for tab ${tab.id}`);
+                    this.sendResizeForTab(tab);
                 };
                 
-                this.ws.onmessage = (event) => {
+                tab.ws.onmessage = (event) => {
                     let data;
                     if (typeof event.data === 'string') {
                         data = event.data;
@@ -500,33 +870,28 @@
                         const decoder = new TextDecoder('utf-8', { fatal: false });
                         data = decoder.decode(new Uint8Array(event.data));
                     }
-                    this.term.write(data);
+                    tab.terminal.write(data);
                 };
                 
-                this.ws.onclose = (event) => {
-                    this.connected = false;
-                    console.log(`WebSocket disconnected (code: ${event.code}, reason: ${event.reason})`);
-                    
-                    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-                        this.reconnectAttempts++;
-                        this.term.write(`\r\n\x1b[33mReconnecting... (${this.reconnectAttempts}/${this.maxReconnectAttempts})\x1b[0m\r\n`);
-                        setTimeout(() => this.connect(), 1000);
-                    } else {
-                        this.term.write('\r\n\x1b[31mConnection lost. Please refresh the page.\x1b[0m\r\n');
-                    }
+                tab.ws.onclose = (event) => {
+                    tab.connected = false;
+                    console.log(`WebSocket disconnected for tab ${tab.id} (code: ${event.code}, reason: ${event.reason})`);
                 };
                 
-                this.ws.onerror = (error) => {
-                    console.error('WebSocket error:', error);
+                tab.ws.onerror = (error) => {
+                    console.error(`WebSocket error for tab ${tab.id}:`, error);
                 };
             }
 
+            connect() {
+                // Connect the active tab
+                const activeTab = this.tabs.find(t => t.id === this.activeTabId);
+                if (activeTab) {
+                    this.connectTab(activeTab);
+                }
+            }
+
             setupTerminalEventListeners() {
-                // Handle user input
-                this.term.onData((data) => {
-                    this.sendInput(data);
-                });
-                
                 // Handle window resize
                 window.addEventListener('resize', () => {
                     clearTimeout(this.resizeTimeout);
@@ -551,56 +916,51 @@
                             }, 50);
                         });
                     }
-                    
-                    this.term.textarea.addEventListener('blur', () => {
-                        setTimeout(() => {
-                            if (!document.activeElement || document.activeElement === document.body) {
-                                document.getElementById('terminal-inner').style.height = '100%';
-                                this.disableTextSelection();
-                                document.body.classList.add('keyboard-hidden');
-                                document.body.classList.remove('keyboard-visible');
-                                this.preventScrolling();
-                                setTimeout(() => {
-                                    this.fitAddon.fit();
-                                    this.sendResize();
-                                }, 10);
-                            }
-                        }, 10);
-                    });
                 }
-                
-                // Handle terminal resize
-                this.term.onResize((size) => {
-                    this.sendResize();
-                });
-                
-                // Handle paste
-                this.term.onBinary((data) => {
-                    this.sendInput(data);
-                });
                 
                 // Add touch event listeners for mobile trackpad functionality
                 this.setupTouchEvents();
-            }
-
-            sendInput(data) {
-                if (this.connected && this.ws.readyState === WebSocket.OPEN) {
-                    this.ws.send(JSON.stringify({
-                        type: 'input',
-                        data: data
-                    }));
+                
+                // Ensure mobile-specific setup is complete
+                if (this.isMobile()) {
+                    this.ensureMobileSetup();
                 }
             }
-
-            sendResize() {
-                if (this.connected && this.ws.readyState === WebSocket.OPEN) {
-                    this.ws.send(JSON.stringify({
-                        type: 'resize',
-                        cols: this.term.cols,
-                        rows: this.term.rows
-                    }));
+            
+            ensureMobileSetup() {
+                // Ensure trackpad mode is enabled
+                this.trackpadMode = true;
+                
+                // Reset viewport styles for mobile
+                const activeTab = this.tabs.find(t => t.id === this.activeTabId);
+                if (activeTab) {
+                    const viewport = activeTab.terminal.element.querySelector('.xterm-viewport');
+                    if (viewport) {
+                        viewport.style.overflow = 'hidden';
+                        viewport.style.overflowY = 'hidden';
+                        viewport.style.overflowX = 'hidden';
+                        viewport.style.touchAction = 'none';
+                    }
                 }
+                
+                // Ensure body styles are set for mobile
+                document.body.classList.add('keyboard-hidden');
+                document.body.classList.remove('keyboard-visible');
+                
+                // Ensure text selection is disabled for navigation
+                this.disableTextSelection();
+                
+                // Force a resize to ensure proper mobile layout
+                setTimeout(() => {
+                    const activeTab = this.tabs.find(t => t.id === this.activeTabId);
+                    if (activeTab && activeTab.fitAddon) {
+                        activeTab.fitAddon.fit();
+                        this.sendResizeForTab(activeTab);
+                    }
+                }, 50);
             }
+
+            
 
             isMobile() {
                 return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -616,22 +976,29 @@
                 const wasKeyboardVisible = this.keyboardVisible;
                 this.keyboardVisible = heightDifference > keyboardThreshold;
                 
+                const activeTab = this.tabs.find(t => t.id === this.activeTabId);
+                if (!activeTab) return;
+                
+                const terminalContainer = document.querySelector('.terminal-container');
+                
                 if (this.keyboardVisible !== wasKeyboardVisible) {
                     if (this.keyboardVisible) {
-                        const bufferHeight = -20;
-                        document.getElementById('terminal-inner').style.height = `${currentHeight + bufferHeight}px`;
+                        const bufferHeight = -60; // Account for tab bar
+                        if (terminalContainer) {
+                            terminalContainer.style.height = `calc(100vh - 40px + ${bufferHeight}px)`;
+                        }
                         this.enableTextSelection();
                         document.body.classList.add('keyboard-visible');
                         document.body.classList.remove('keyboard-hidden');
                         this.allowScrolling();
                         
                         setTimeout(() => {
-                            if (this.term) {
-                                this.term.scrollToBottom();
-                            }
+                            activeTab.terminal.scrollToBottom();
                         }, 15);
                     } else {
-                        document.getElementById('terminal-inner').style.height = '100%';
+                        if (terminalContainer) {
+                            terminalContainer.style.height = 'calc(100vh - 40px)';
+                        }
                         this.disableTextSelection();
                         document.body.classList.add('keyboard-hidden');
                         document.body.classList.remove('keyboard-visible');
@@ -639,25 +1006,42 @@
                     }
                     
                     setTimeout(() => {
-                        this.fitAddon.fit();
-                        this.sendResize();
+                        activeTab.fitAddon.fit();
+                        this.sendResizeForTab(activeTab);
                     }, 10);
                 }
             }
 
             handleResize() {
-                if (this.isMobile() && window.visualViewport) {
-                    this.handleKeyboardResize();
-                } else {
-                    this.fitAddon.fit();
-                    this.sendResize();
+                // Resize all tabs
+                this.tabs.forEach(tab => {
+                    if (this.isMobile() && window.visualViewport) {
+                        this.handleKeyboardResize();
+                    } else {
+                        tab.fitAddon.fit();
+                        this.sendResizeForTab(tab);
+                    }
+                });
+                
+                // Resize active tab immediately
+                const activeTab = this.tabs.find(t => t.id === this.activeTabId);
+                if (activeTab) {
+                    setTimeout(() => {
+                        activeTab.fitAddon.fit();
+                        this.sendResizeForTab(activeTab);
+                    }, 10);
                 }
             }
 
             setupTouchEvents() {
-                const terminal = document.getElementById('terminal-inner');
+                const terminalContainer = document.querySelector('.terminal-container');
+                if (!terminalContainer) return;
                 
-                terminal.addEventListener('touchstart', (e) => {
+                // Remove existing touch event listeners
+                const newContainer = terminalContainer.cloneNode(true);
+                terminalContainer.parentNode.replaceChild(newContainer, terminalContainer);
+                
+                newContainer.addEventListener('touchstart', (e) => {
                     if (e.touches.length === 1 && this.isMobile()) {
                         this.touchStartX = e.touches[0].clientX;
                         this.touchStartY = e.touches[0].clientY;
@@ -666,7 +1050,7 @@
                     }
                 }, { passive: false });
                 
-                terminal.addEventListener('touchmove', (e) => {
+                newContainer.addEventListener('touchmove', (e) => {
                     if (e.touches.length === 1 && this.isMobile()) {
                         const currentX = e.touches[0].clientX;
                         const currentY = e.touches[0].clientY;
@@ -679,12 +1063,15 @@
                             e.preventDefault();
                             e.stopPropagation();
                             
-                            const viewport = document.querySelector('.xterm-viewport');
-                            if (viewport) {
-                                viewport.style.overflow = 'hidden';
-                                viewport.style.overflowY = 'hidden';
-                                viewport.style.overflowX = 'hidden';
-                                viewport.style.touchAction = 'none';
+                            const activeTab = this.tabs.find(t => t.id === this.activeTabId);
+                            if (activeTab) {
+                                const viewport = activeTab.terminal.element.querySelector('.xterm-viewport');
+                                if (viewport) {
+                                    viewport.style.overflow = 'hidden';
+                                    viewport.style.overflowY = 'hidden';
+                                    viewport.style.overflowX = 'hidden';
+                                    viewport.style.touchAction = 'none';
+                                }
                             }
                             
                             if (!this.isNavigating && (Math.abs(deltaX) > threshold || Math.abs(deltaY) > threshold)) {
@@ -698,7 +1085,10 @@
                                 }
                                 
                                 if (key) {
-                                    this.sendInput(key);
+                                    const activeTab = this.tabs.find(t => t.id === this.activeTabId);
+                                    if (activeTab) {
+                                        this.sendInputForTab(activeTab, key);
+                                    }
                                     this.touchStartX = currentX;
                                     this.touchStartY = currentY;
                                 }
@@ -711,7 +1101,10 @@
                                 }
                                 
                                 if (key) {
-                                    this.sendInput(key);
+                                    const activeTab = this.tabs.find(t => t.id === this.activeTabId);
+                                    if (activeTab) {
+                                        this.sendInputForTab(activeTab, key);
+                                    }
                                     this.touchStartX = currentX;
                                     this.touchStartY = currentY;
                                 }
@@ -720,7 +1113,7 @@
                     }
                 }, { passive: false });
                 
-                terminal.addEventListener('touchend', (e) => {
+                newContainer.addEventListener('touchend', (e) => {
                     const timeDiff = Date.now() - this.touchStartTime;
                     const wasTap = timeDiff < 300 && !this.isNavigating;
                     
@@ -731,7 +1124,7 @@
                     }
                 }, { passive: false });
                 
-                terminal.addEventListener('touchcancel', (e) => {
+                newContainer.addEventListener('touchcancel', (e) => {
                     this.isNavigating = false;
                     
                     if (!this.keyboardVisible && this.isMobile()) {
@@ -789,8 +1182,9 @@
         }
 
         // Start the application when page loads
+        let authTerminal;
         document.addEventListener('DOMContentLoaded', () => {
-            const authTerminal = new AuthTerminal();
+            authTerminal = new AuthTerminal();
         });
     </script>
 </body>

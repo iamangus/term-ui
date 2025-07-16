@@ -62,24 +62,34 @@ func initTerminalSessionManager() {
 	}
 }
 
-func (sm *SessionManager) GetOrCreateSession(username string) (*TerminalSession, error) {
+func (sm *SessionManager) GetOrCreateSession(sessionID, username string) (*TerminalSession, error) {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 	
-	// Use username as the session identifier
-	if session, exists := sm.sessions[username]; exists {
+	// Use sessionID as the key for unique sessions
+	if session, exists := sm.sessions[sessionID]; exists {
 		session.lastUsed = time.Now()
 		return session, nil
 	}
 	
-	// Create new session for this user
-	session, err := sm.createTerminalSession(username, username)
+	// Create new session with the provided sessionID
+	session, err := sm.createTerminalSession(sessionID, username)
 	if err != nil {
 		return nil, err
 	}
 	
-	sm.sessions[username] = session
+	sm.sessions[sessionID] = session
 	return session, nil
+}
+
+func (sm *SessionManager) CloseSession(sessionID string) {
+	sm.mutex.Lock()
+	defer sm.mutex.Unlock()
+	
+	if session, exists := sm.sessions[sessionID]; exists {
+		session.close()
+		delete(sm.sessions, sessionID)
+	}
 }
 
 // CleanupInactiveSessions removes sessions that have been inactive for too long
@@ -274,8 +284,15 @@ func handleWebSocket(c *websocket.Conn) {
 		return
 	}
 	
-	// Get or create terminal session for this user
-	session, err := terminalSessionManager.GetOrCreateSession(username)
+	// Get session ID from query parameter
+	sessionID := c.Query("session")
+	if sessionID == "" {
+		// Default to username for backward compatibility
+		sessionID = username
+	}
+	
+	// Get or create terminal session for this session ID
+	session, err := terminalSessionManager.GetOrCreateSession(sessionID, username)
 	if err != nil {
 		log.Printf("Failed to get/create session: %v", err)
 		return
