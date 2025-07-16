@@ -41,6 +41,7 @@ type TerminalSession struct {
 	createdAt   time.Time
 	lastUsed    time.Time
 	username    string
+	refCount    int
 }
 
 type SessionManager struct {
@@ -68,6 +69,10 @@ func (sm *SessionManager) GetOrCreateSession(sessionID, username string) (*Termi
 	
 	// Check if session already exists in memory
 	if session, exists := sm.sessions[sessionID]; exists {
+		// Verify the session belongs to the same user
+		if session.username != username {
+			return nil, fmt.Errorf("session %s belongs to different user", sessionID)
+		}
 		session.lastUsed = time.Now()
 		return session, nil
 	}
@@ -80,6 +85,35 @@ func (sm *SessionManager) GetOrCreateSession(sessionID, username string) (*Termi
 	
 	sm.sessions[sessionID] = session
 	return session, nil
+}
+
+// GetUserSessions returns all sessions for a specific user
+func (sm *SessionManager) GetUserSessions(username string) []*TerminalSession {
+	sm.mutex.RLock()
+	defer sm.mutex.RUnlock()
+	
+	var userSessions []*TerminalSession
+	for _, session := range sm.sessions {
+		if session.username == username {
+			userSessions = append(userSessions, session)
+		}
+	}
+	return userSessions
+}
+
+// CleanupInactiveSessions removes sessions that have been inactive for too long
+func (sm *SessionManager) CleanupInactiveSessions(maxInactive time.Duration) {
+	sm.mutex.Lock()
+	defer sm.mutex.Unlock()
+	
+	now := time.Now()
+	for id, session := range sm.sessions {
+		if now.Sub(session.lastUsed) > maxInactive && len(session.connections) == 0 {
+			log.Printf("Cleaning up inactive session %s for user %s", id, session.username)
+			session.close()
+			delete(sm.sessions, id)
+		}
+	}
 }
 
 func (sm *SessionManager) createTerminalSession(sessionID, username string) (*TerminalSession, error) {
@@ -154,6 +188,8 @@ func (t *TerminalSession) AddConnection(conn *websocket.Conn) {
 	defer t.connMutex.Unlock()
 	
 	t.connections[conn] = true
+	t.refCount++
+	t.lastUsed = time.Now()
 	
 	// Send existing buffer to new connection
 	t.bufferMutex.Lock()
@@ -161,13 +197,25 @@ func (t *TerminalSession) AddConnection(conn *websocket.Conn) {
 		conn.WriteMessage(websocket.TextMessage, t.buffer)
 	}
 	t.bufferMutex.Unlock()
+	
+	if debugMode {
+		log.Printf("Added connection to session %s, total connections: %d", t.ID, len(t.connections))
+	}
 }
 
 func (t *TerminalSession) RemoveConnection(conn *websocket.Conn) {
 	t.connMutex.Lock()
 	defer t.connMutex.Unlock()
 	
-	delete(t.connections, conn)
+	if _, exists := t.connections[conn]; exists {
+		delete(t.connections, conn)
+		t.refCount--
+		t.lastUsed = time.Now()
+		
+		if debugMode {
+			log.Printf("Removed connection from session %s, remaining connections: %d", t.ID, len(t.connections))
+		}
+	}
 }
 
 func (t *TerminalSession) BroadcastToConnections(messageType int, data []byte) {
@@ -422,6 +470,19 @@ func main() {
 	// Initialize terminal session manager
 	initTerminalSessionManager()
 
+	// Start background cleanup routine
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		
+		for {
+			select {
+			case <-ticker.C:
+				terminalSessionManager.CleanupInactiveSessions(30 * time.Minute)
+			}
+		}
+	}()
+
 	app := fiber.New()
 	app.Use(logger.New())
 	app.Use(auth.SecurityHeaders())
@@ -440,8 +501,43 @@ func main() {
 
 	// API routes
 	app.Post("/api/session", authHandlers.RequireAuth, func(c *fiber.Ctx) error {
+		username := c.Locals("username").(string)
+		
+		// Check if client wants to reuse an existing session
+		existingSessionID := c.Query("reuse")
+		if existingSessionID != "" {
+			// Verify the session exists and belongs to the user
+			if session, exists := terminalSessionManager.sessions[existingSessionID]; exists && session.username == username {
+				return c.JSON(fiber.Map{"sessionId": existingSessionID})
+			}
+		}
+		
+		// Create new session
 		sessionID := uuid.New().String()
 		return c.JSON(fiber.Map{"sessionId": sessionID})
+	})
+
+	// List user sessions
+	app.Get("/api/sessions", authHandlers.RequireAuth, func(c *fiber.Ctx) error {
+		username := c.Locals("username").(string)
+		sessions := terminalSessionManager.GetUserSessions(username)
+		
+		var sessionList []fiber.Map
+		for _, session := range sessions {
+			session.connMutex.Lock()
+			connectionCount := len(session.connections)
+			session.connMutex.Unlock()
+			
+			sessionList = append(sessionList, fiber.Map{
+				"id":         session.ID,
+				"createdAt":  session.createdAt,
+				"lastUsed":   session.lastUsed,
+				"active":     session.active,
+				"connections": connectionCount,
+			})
+		}
+		
+		return c.JSON(fiber.Map{"sessions": sessionList})
 	})
 
 	// WebSocket upgrade middleware
