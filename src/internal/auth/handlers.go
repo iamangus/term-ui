@@ -94,11 +94,12 @@ func (h *Handlers) Login(c *fiber.Ctx) error {
 	}
 
 	// Store state and nonce in session (simplified - in production use proper session storage)
+	_, secure, httpOnly := h.sessionManager.GetCookieSettings()
 	c.Cookie(&fiber.Cookie{
 		Name:     "oauth_state",
 		Value:    state,
-		HTTPOnly: true,
-		Secure:   true,
+		HTTPOnly: httpOnly,
+		Secure:   secure,
 		SameSite: "Lax",
 		MaxAge:   600, // 10 minutes
 	})
@@ -106,8 +107,8 @@ func (h *Handlers) Login(c *fiber.Ctx) error {
 	c.Cookie(&fiber.Cookie{
 		Name:     "oauth_nonce",
 		Value:    nonce,
-		HTTPOnly: true,
-		Secure:   true,
+		HTTPOnly: httpOnly,
+		Secure:   secure,
 		SameSite: "Lax",
 		MaxAge:   600, // 10 minutes
 	})
@@ -118,6 +119,9 @@ func (h *Handlers) Login(c *fiber.Ctx) error {
 }
 
 func (h *Handlers) Callback(c *fiber.Ctx) error {
+	// Get cookie settings from session manager
+	_, secure, httpOnly := h.sessionManager.GetCookieSettings()
+	
 	// Get state and nonce from cookies
 	state := c.Cookies("oauth_state")
 	nonce := c.Cookies("oauth_nonce")
@@ -132,16 +136,16 @@ func (h *Handlers) Callback(c *fiber.Ctx) error {
 	c.Cookie(&fiber.Cookie{
 		Name:     "oauth_state",
 		Value:    "",
-		HTTPOnly: true,
-		Secure:   true,
+		HTTPOnly: httpOnly,
+		Secure:   secure,
 		SameSite: "Lax",
 		MaxAge:   -1,
 	})
 	c.Cookie(&fiber.Cookie{
 		Name:     "oauth_nonce",
 		Value:    "",
-		HTTPOnly: true,
-		Secure:   true,
+		HTTPOnly: httpOnly,
+		Secure:   secure,
 		SameSite: "Lax",
 		MaxAge:   -1,
 	})
@@ -271,14 +275,14 @@ func (h *Handlers) Callback(c *fiber.Ctx) error {
 }
 
 func (h *Handlers) Logout(c *fiber.Ctx) error {
-	cookieName, _, _ := h.sessionManager.GetCookieSettings()
+	cookieName, secure, httpOnly := h.sessionManager.GetCookieSettings()
 	
 	// Clear session cookie
 	c.Cookie(&fiber.Cookie{
 		Name:     cookieName,
 		Value:    "",
-		HTTPOnly: true,
-		Secure:   true,
+		HTTPOnly: httpOnly,
+		Secure:   secure,
 		SameSite: "Lax",
 		MaxAge:   -1,
 	})
