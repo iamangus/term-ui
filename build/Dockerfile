@@ -21,15 +21,12 @@ RUN dnf install dnf-plugins-core -y && \
 
 RUN useradd -m -s /bin/bash termuser
 
-USER termuser
+COPY src /home/termuser/term-ui
 
-COPY src src
-
-RUN cd src && \
+RUN cd /home/termuser/term-ui && \
     go mod tidy && \
-    go build -o term-ui
-
-USER root
+    go build -o term-ui && \
+    chown -R termuser:termuser /home/termuser
 
 RUN groupadd usermanagers && \
     usermod -a -G usermanagers termuser && \
