@@ -32,7 +32,7 @@ RUN groupadd usermanagers && \
     usermod -a -G usermanagers termuser && \
     chown root:usermanagers /etc/passwd /etc/shadow /etc/group && \
     chmod 664 /etc/passwd /etc/shadow /etc/group && \
-    setcap cap_setuid,cap_setgid+ep /home/termuser/term-ui && \
+    setcap cap_setuid,cap_setgid+ep /home/termuser/term-ui/term-ui && \
     echo "termuser ALL=(root) NOPASSWD: /usr/sbin/useradd, /usr/sbin/userdel, /usr/bin/chown, /usr/bin/chmod, /usr/bin/mkdir" > /etc/sudoers.d/termuser && \
     chmod 440 /etc/sudoers.d/termuser
 
