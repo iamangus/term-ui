@@ -56,16 +56,16 @@ func (m *Manager) CreateUser(username, email string) (*User, error) {
 		return m.GetUser(username)
 	}
 
-	// Create user with useradd command
-	cmd := exec.Command("useradd", 
+	// Create user with useradd command using sudo
+	cmd := exec.Command("sudo", "useradd",
 		"-m",           // Create home directory
 		"-s", m.shell,  // Set shell
 		"-c", fmt.Sprintf("OIDC User (%s)", email), // Comment/GECOS
 		username,
 	)
 
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to create user %s: %w", username, err)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("failed to create user %s: %w (output: %s)", username, err, string(output))
 	}
 
 	// Get the newly created user
@@ -83,11 +83,12 @@ func (m *Manager) EnsureUserDirectory(username string) error {
 		return fmt.Errorf("failed to create home directory: %w", err)
 	}
 
-	// Set ownership
+	// Set ownership using sudo chown
 	uid := uint32(user.UID)
 	gid := uint32(user.GID)
-	if err := os.Chown(user.HomeDir, int(uid), int(gid)); err != nil {
-		return fmt.Errorf("failed to set home directory ownership: %w", err)
+	cmd := exec.Command("sudo", "chown", "-R", fmt.Sprintf("%d:%d", uid, gid), user.HomeDir)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to set home directory ownership: %w (output: %s)", err, string(output))
 	}
 
 	return nil
@@ -105,11 +106,12 @@ func (m *Manager) SetupUserEnvironment(username string) error {
 		return fmt.Errorf("failed to create .ssh directory: %w", err)
 	}
 
-	// Set ownership
+	// Set ownership using sudo chown
 	uid := uint32(user.UID)
 	gid := uint32(user.GID)
-	if err := os.Chown(sshDir, int(uid), int(gid)); err != nil {
-		return fmt.Errorf("failed to set .ssh directory ownership: %w", err)
+	cmd := exec.Command("sudo", "chown", fmt.Sprintf("%d:%d", uid, gid), sshDir)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to set .ssh directory ownership: %w (output: %s)", err, string(output))
 	}
 
 	return nil
