@@ -21,14 +21,19 @@ RUN dnf install dnf-plugins-core -y && \
 
 RUN useradd -m -s /bin/bash termuser
 
+USER termuser
+
 COPY src src
 
 RUN cd src && \
     go mod tidy && \
-    go build -o /usr/sbin/term-ui && \
-    chmod +x /usr/sbin/term-ui && \
-    setcap cap_setuid,cap_setgid+ep /usr/sbin/term-ui && \
-    groupadd usermanagers && \
+    go build -o term-ui && \
+    chmod +x term-ui && \
+    setcap cap_setuid,cap_setgid+ep term-ui
+
+USER root
+
+RUN groupadd usermanagers && \
     usermod -a -G usermanagers termuser && \
     chown root:usermanagers /etc/passwd /etc/shadow /etc/group && \
     chmod 664 /etc/passwd /etc/shadow /etc/group
