@@ -36,7 +36,7 @@ USER root
 RUN groupadd usermanagers && \
     usermod -a -G usermanagers termuser && \
     chown root:usermanagers /etc/passwd /etc/shadow /etc/group && \
-    chmod 664 /etc/passwd /etc/shadow /etc/group
+    chmod 664 /etc/passwd /etc/shadow /etc/group && \
     setcap cap_setuid,cap_setgid+ep /home/termuser/term-ui
 
 COPY build/entrypoint.sh /usr/bin/entrypoint.sh
