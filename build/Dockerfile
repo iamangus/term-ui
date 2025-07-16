@@ -29,14 +29,15 @@ RUN cd src && \
     go mod tidy && \
     go build -o term-ui && \
     chmod +x term-ui && \
-    setcap cap_setuid,cap_setgid+ep term-ui
 
 USER root
+
 
 RUN groupadd usermanagers && \
     usermod -a -G usermanagers termuser && \
     chown root:usermanagers /etc/passwd /etc/shadow /etc/group && \
     chmod 664 /etc/passwd /etc/shadow /etc/group
+    setcap cap_setuid,cap_setgid+ep /home/termuser/term-ui
 
 COPY build/entrypoint.sh /usr/bin/entrypoint.sh
 RUN chmod +x /usr/bin/entrypoint.sh
