@@ -270,8 +270,8 @@ func (h *Handlers) Callback(c *fiber.Ctx) error {
 		MaxAge:   86400, // 24 hours
 	})
 
-	// Redirect to terminal
-	return c.Redirect("/", http.StatusFound)
+	// Redirect to terminal with auto-start parameter
+	return c.Redirect("/?terminal=auto", http.StatusFound)
 }
 
 func (h *Handlers) Logout(c *fiber.Ctx) error {

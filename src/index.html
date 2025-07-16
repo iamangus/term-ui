@@ -306,6 +306,19 @@
                     this.trackpadMode = true;
                     document.body.classList.add('keyboard-hidden');
                 }
+                
+                // Check for auto-start terminal parameter
+                const urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.get('terminal') === 'auto') {
+                    if (this.user) {
+                        // Clean up URL and auto-start terminal
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                        this.startTerminal();
+                    } else {
+                        // Clean up URL but don't start terminal (user not authenticated)
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                    }
+                }
             }
 
             async loadVisualConfig() {
